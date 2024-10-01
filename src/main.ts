@@ -116,29 +116,25 @@ async function getAIResponse(prompt: string): Promise<Array<{
 }> | null> {
   const queryConfig = {
     model: OPENAI_API_MODEL,
-    temperature: 0.2,
-    max_tokens: 700,
-    top_p: 1,
-    frequency_penalty: 0,
-    presence_penalty: 0,
+    max_completion_tokens: 700,
   };
 
   try {
     const response = await openai.chat.completions.create({
       ...queryConfig,
-      // return JSON if the model supports it:
-      ...(OPENAI_API_MODEL === "gpt-4-1106-preview"
-        ? { response_format: { type: "json_object" } }
-        : {}),
       messages: [
         {
-          role: "system",
+          role: "user",
           content: prompt,
         },
       ],
     });
 
     const res = response.choices[0].message?.content?.trim() || "{}";
+    // Remove ```json from the response if it exists
+    if (res.startsWith("```json")) {
+      return JSON.parse(res.slice(7, res.length - 3)).reviews;
+    }
     return JSON.parse(res).reviews;
   } catch (error) {
     console.error("Error:", error);

@@ -4,6 +4,23 @@
   "description": "Open AI powered code reviews",
   "main": "lib/main.js",
   "author": "Ville Saukkonen",
+  "contributors": [
+    {
+      "name": "Ville Saukkonen",
+      "url": "https://github.com/villesau"
+    },
+    {
+      "name": "Will Poynter",
+      "email": "will@researchwiseai.com",
+      "url": "https://researchwiseai.com"
+    }
+  ],
+  "maintainers": [
+    {
+      "name": "Will Poynter",
+      "email": "will@researchwiseai.com"
+    }
+  ],
   "license": "MIT",
   "scripts": {
     "build": "tsc",
