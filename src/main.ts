@@ -5,9 +5,12 @@ import { Octokit } from "@octokit/rest";
 import parseDiff, { Chunk, File } from "parse-diff";
 import minimatch from "minimatch";
 
-const GITHUB_TOKEN: string = core.getInput("GITHUB_TOKEN");
-const OPENAI_API_KEY: string = core.getInput("OPENAI_API_KEY");
-const OPENAI_API_MODEL: string = core.getInput("OPENAI_API_MODEL");
+const GITHUB_TOKEN: string =
+  process.env.GITHUB_TOKEN ?? core.getInput("GITHUB_TOKEN");
+const OPENAI_API_KEY: string =
+  process.env.OPENAI_API_KEY ?? core.getInput("OPENAI_API_KEY");
+const OPENAI_API_MODEL: string =
+  process.env.OPENAI_API_MODEL ?? core.getInput("OPENAI_API_MODEL");
 
 const octokit = new Octokit({ auth: GITHUB_TOKEN });
 
@@ -58,7 +61,8 @@ async function getDiff(
 
 async function analyzeCode(
   parsedDiff: File[],
-  prDetails: PRDetails
+  prDetails: PRDetails,
+  verbose = false
 ): Promise<Array<{ body: string; path: string; line: number }>> {
   const comments: Array<{ body: string; path: string; line: number }> = [];
 
@@ -66,7 +70,13 @@ async function analyzeCode(
     if (file.to === "/dev/null") continue; // Ignore deleted files
     for (const chunk of file.chunks) {
       const prompt = createPrompt(file, chunk, prDetails);
-      const aiResponse = await getAIResponse(prompt);
+
+      if (verbose) console.log("Prompt:", prompt);
+
+      const aiResponse = await getAIResponse(prompt, verbose);
+
+      if (verbose) console.log("AI Response:", aiResponse);
+
       if (aiResponse) {
         const newComments = createComment(file, chunk, aiResponse);
         if (newComments) {
@@ -110,13 +120,15 @@ ${chunk.changes
 `;
 }
 
-async function getAIResponse(prompt: string): Promise<Array<{
+async function getAIResponse(
+  prompt: string,
+  verbose = false
+): Promise<Array<{
   lineNumber: string;
   reviewComment: string;
 }> | null> {
   const queryConfig = {
     model: OPENAI_API_MODEL,
-    max_completion_tokens: 700,
   };
 
   try {
@@ -129,6 +141,8 @@ async function getAIResponse(prompt: string): Promise<Array<{
         },
       ],
     });
+
+    if (verbose) console.log("Response:", response);
 
     const res = response.choices[0].message?.content?.trim() || "{}";
     // Remove ```json from the response if it exists
@@ -168,29 +182,44 @@ async function createReviewComment(
   pull_number: number,
   comments: Array<{ body: string; path: string; line: number }>
 ): Promise<void> {
-  await octokit.pulls.createReview({
-    owner,
-    repo,
-    pull_number,
-    comments,
-    event: "COMMENT",
-  });
+  try {
+    await octokit.pulls.createReview({
+      owner,
+      repo,
+      pull_number,
+      comments,
+      event: "COMMENT",
+    });
+  } catch (error) {
+    console.error(error);
+
+    throw error;
+  }
 }
 
-async function main() {
+async function main(verbose = false) {
   const prDetails = await getPRDetails();
+
+  if (verbose) console.log("PR Details:", prDetails);
+
   let diff: string | null;
   const eventData = JSON.parse(
     readFileSync(process.env.GITHUB_EVENT_PATH ?? "", "utf8")
   );
 
+  if (verbose) console.log("Event Data:", eventData);
+
   if (eventData.action === "opened") {
+    if (verbose) console.log('Event action is "opened"');
+
     diff = await getDiff(
       prDetails.owner,
       prDetails.repo,
       prDetails.pull_number
     );
   } else if (eventData.action === "synchronize") {
+    if (verbose) console.log('Event action is "synchronize"');
+
     const newBaseSha = eventData.before;
     const newHeadSha = eventData.after;
 
@@ -204,11 +233,15 @@ async function main() {
       head: newHeadSha,
     });
 
+    if (verbose) console.log("Response:", response);
+
     diff = String(response.data);
   } else {
     console.log("Unsupported event:", process.env.GITHUB_EVENT_NAME);
     return;
   }
+
+  if (verbose) console.log("Diff:", diff);
 
   if (!diff) {
     console.log("No diff found");
@@ -217,10 +250,13 @@ async function main() {
 
   const parsedDiff = parseDiff(diff);
 
-  const excludePatterns = core
-    .getInput("exclude")
+  if (verbose) console.log("Parsed Diff:", parsedDiff);
+
+  const excludePatterns = (process.env.EXCLUDE ?? core.getInput("exclude"))
     .split(",")
     .map((s) => s.trim());
+
+  if (verbose) console.log("Exclude Patterns:", excludePatterns);
 
   const filteredDiff = parsedDiff.filter((file) => {
     return !excludePatterns.some((pattern) =>
@@ -228,7 +264,12 @@ async function main() {
     );
   });
 
-  const comments = await analyzeCode(filteredDiff, prDetails);
+  if (verbose) console.log("Filtered Diff:", filteredDiff);
+
+  const comments = await analyzeCode(filteredDiff, prDetails, verbose);
+
+  if (verbose) console.log("Comments:", comments);
+
   if (comments.length > 0) {
     await createReviewComment(
       prDetails.owner,
@@ -239,7 +280,9 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error("Error:", error);
-  process.exit(1);
-});
+main((process.env.VERBOSE ?? core.getInput("VERBOSE")) === "true").catch(
+  (error) => {
+    console.error("Error:", error);
+    process.exit(1);
+  }
+);
