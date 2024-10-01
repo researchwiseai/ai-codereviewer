@@ -205,7 +205,7 @@ ${chunk.changes
           const queryConfig = {
             model: OPENAI_API_MODEL,
             temperature: 0.1,
-            max_tokens: 700,
+            max_completion_tokens: 700,
             top_p: 1,
             frequency_penalty: 0,
             presence_penalty: 0,
