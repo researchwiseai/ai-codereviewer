@@ -204,11 +204,7 @@ ${chunk.changes
         return __awaiter(this, void 0, void 0, function* () {
           const queryConfig = {
             model: OPENAI_API_MODEL,
-            temperature: 0.1,
             max_completion_tokens: 700,
-            top_p: 1,
-            frequency_penalty: 0,
-            presence_penalty: 0,
           };
           try {
             const response = yield openai.chat.completions.create(
