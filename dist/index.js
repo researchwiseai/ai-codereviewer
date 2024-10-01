@@ -101,6 +101,7 @@ require("./sourcemap-register.js");
         function (mod) {
           return mod && mod.__esModule ? mod : { default: mod };
         };
+      var _a, _b, _c, _d;
       Object.defineProperty(exports, "__esModule", { value: true });
       const fs_1 = __nccwpck_require__(7147);
       const core = __importStar(__nccwpck_require__(2186));
@@ -108,9 +109,18 @@ require("./sourcemap-register.js");
       const rest_1 = __nccwpck_require__(5375);
       const parse_diff_1 = __importDefault(__nccwpck_require__(4833));
       const minimatch_1 = __importDefault(__nccwpck_require__(2002));
-      const GITHUB_TOKEN = core.getInput("GITHUB_TOKEN");
-      const OPENAI_API_KEY = core.getInput("OPENAI_API_KEY");
-      const OPENAI_API_MODEL = core.getInput("OPENAI_API_MODEL");
+      const GITHUB_TOKEN =
+        (_a = process.env.GITHUB_TOKEN) !== null && _a !== void 0
+          ? _a
+          : core.getInput("GITHUB_TOKEN");
+      const OPENAI_API_KEY =
+        (_b = process.env.OPENAI_API_KEY) !== null && _b !== void 0
+          ? _b
+          : core.getInput("OPENAI_API_KEY");
+      const OPENAI_API_MODEL =
+        (_c = process.env.OPENAI_API_MODEL) !== null && _c !== void 0
+          ? _c
+          : core.getInput("OPENAI_API_MODEL");
       const octokit = new rest_1.Octokit({ auth: GITHUB_TOKEN });
       const openai = new openai_1.default({
         apiKey: OPENAI_API_KEY,
@@ -149,14 +159,16 @@ require("./sourcemap-register.js");
           return response.data;
         });
       }
-      function analyzeCode(parsedDiff, prDetails) {
+      function analyzeCode(parsedDiff, prDetails, verbose = false) {
         return __awaiter(this, void 0, void 0, function* () {
           const comments = [];
           for (const file of parsedDiff) {
             if (file.to === "/dev/null") continue; // Ignore deleted files
             for (const chunk of file.chunks) {
               const prompt = createPrompt(file, chunk, prDetails);
-              const aiResponse = yield getAIResponse(prompt);
+              if (verbose) console.log("Prompt:", prompt);
+              const aiResponse = yield getAIResponse(prompt, verbose);
+              if (verbose) console.log("AI Response:", aiResponse);
               if (aiResponse) {
                 const newComments = createComment(file, chunk, aiResponse);
                 if (newComments) {
@@ -199,12 +211,11 @@ ${chunk.changes
 \`\`\`
 `;
       }
-      function getAIResponse(prompt) {
+      function getAIResponse(prompt, verbose = false) {
         var _a, _b;
         return __awaiter(this, void 0, void 0, function* () {
           const queryConfig = {
             model: OPENAI_API_MODEL,
-            max_completion_tokens: 700,
           };
           try {
             const response = yield openai.chat.completions.create(
@@ -217,6 +228,7 @@ ${chunk.changes
                 ],
               })
             );
+            if (verbose) console.log("Response:", response);
             const res =
               ((_b =
                 (_a = response.choices[0].message) === null || _a === void 0
@@ -249,19 +261,25 @@ ${chunk.changes
       }
       function createReviewComment(owner, repo, pull_number, comments) {
         return __awaiter(this, void 0, void 0, function* () {
-          yield octokit.pulls.createReview({
-            owner,
-            repo,
-            pull_number,
-            comments,
-            event: "COMMENT",
-          });
+          try {
+            yield octokit.pulls.createReview({
+              owner,
+              repo,
+              pull_number,
+              comments,
+              event: "COMMENT",
+            });
+          } catch (error) {
+            console.error(error);
+            throw error;
+          }
         });
       }
-      function main() {
-        var _a;
+      function main(verbose = false) {
+        var _a, _b;
         return __awaiter(this, void 0, void 0, function* () {
           const prDetails = yield getPRDetails();
+          if (verbose) console.log("PR Details:", prDetails);
           let diff;
           const eventData = JSON.parse(
             (0, fs_1.readFileSync)(
@@ -271,13 +289,16 @@ ${chunk.changes
               "utf8"
             )
           );
+          if (verbose) console.log("Event Data:", eventData);
           if (eventData.action === "opened") {
+            if (verbose) console.log('Event action is "opened"');
             diff = yield getDiff(
               prDetails.owner,
               prDetails.repo,
               prDetails.pull_number
             );
           } else if (eventData.action === "synchronize") {
+            if (verbose) console.log('Event action is "synchronize"');
             const newBaseSha = eventData.before;
             const newHeadSha = eventData.after;
             const response = yield octokit.repos.compareCommits({
@@ -289,20 +310,27 @@ ${chunk.changes
               base: newBaseSha,
               head: newHeadSha,
             });
+            if (verbose) console.log("Response:", response);
             diff = String(response.data);
           } else {
             console.log("Unsupported event:", process.env.GITHUB_EVENT_NAME);
             return;
           }
+          if (verbose) console.log("Diff:", diff);
           if (!diff) {
             console.log("No diff found");
             return;
           }
           const parsedDiff = (0, parse_diff_1.default)(diff);
-          const excludePatterns = core
-            .getInput("exclude")
+          if (verbose) console.log("Parsed Diff:", parsedDiff);
+          const excludePatterns = (
+            (_b = process.env.EXCLUDE) !== null && _b !== void 0
+              ? _b
+              : core.getInput("exclude")
+          )
             .split(",")
             .map((s) => s.trim());
+          if (verbose) console.log("Exclude Patterns:", excludePatterns);
           const filteredDiff = parsedDiff.filter((file) => {
             return !excludePatterns.some((pattern) => {
               var _a;
@@ -312,7 +340,9 @@ ${chunk.changes
               );
             });
           });
-          const comments = yield analyzeCode(filteredDiff, prDetails);
+          if (verbose) console.log("Filtered Diff:", filteredDiff);
+          const comments = yield analyzeCode(filteredDiff, prDetails, verbose);
+          if (verbose) console.log("Comments:", comments);
           if (comments.length > 0) {
             yield createReviewComment(
               prDetails.owner,
@@ -323,7 +353,11 @@ ${chunk.changes
           }
         });
       }
-      main().catch((error) => {
+      main(
+        ((_d = process.env.VERBOSE) !== null && _d !== void 0
+          ? _d
+          : core.getInput("VERBOSE")) === "true"
+      ).catch((error) => {
         console.error("Error:", error);
         process.exit(1);
       });
