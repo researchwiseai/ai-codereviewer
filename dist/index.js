@@ -209,8 +209,6 @@ ${chunk.changes
           try {
             const response = yield openai.chat.completions.create(
               Object.assign(Object.assign({}, queryConfig), {
-                // return JSON if the model supports it:
-                response_format: { type: "json_object" },
                 messages: [
                   {
                     role: "user",
